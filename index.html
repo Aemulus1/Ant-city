@@ -197,19 +197,23 @@
       for(const entry of preferredLPlans){if(lPlanEntries.length>=3)break;addLPlan(entry,false)}
       for(const entry of visibleBuildings.slice().sort(()=>Math.random()-.5)){if(lPlanEntries.length>=3)break;addLPlan(entry,false)}
       for(const entry of lPlanEntries){entry.building.shape='lplan';entry.building.frontSlope=0;entry.building.doorFace='front';entry.building.portal=false;entry.building.fireEscape=false}
-      // Elke foto hoogstens één keer in de volledige stad (beide voorste rijen samen).
-      // Als er meer gebouwen dan foto's zijn, blijven de overige gebouwen origineel getekend.
+      // Drie voorste rijen: vijf verschillende fotogevels per rij.
+      // Geen enkele foto wordt in dezelfde stad herhaald.
       const availablePhotos=Array.from({length:facadePhotos.length},(_,i)=>i);
       for(let i=availablePhotos.length-1;i>0;i--){
         const j=Math.floor(Math.random()*(i+1));
         [availablePhotos[i],availablePhotos[j]]=[availablePhotos[j],availablePhotos[i]];
       }
-      for(let r=Math.max(0,count-2);r<count;r++){
-        for(const seg of rows[r].segments){
-          if(seg.kind!=="building")continue;
-          delete seg.building.photoIndex;
-          if(availablePhotos.length)seg.building.photoIndex=availablePhotos.pop();
+      for(let r=Math.max(0,count-3);r<count;r++){
+        const buildings=rows[r].segments.filter(seg=>seg.kind==='building');
+        for(const seg of buildings)delete seg.building.photoIndex;
+        // Kies vijf gevelposities verspreid over de rij.
+        const selected=[];
+        for(let k=0;k<Math.min(5,buildings.length,availablePhotos.length);k++){
+          const index=Math.min(buildings.length-1,Math.floor((k+.5)*buildings.length/5));
+          if(!selected.includes(index))selected.push(index);
         }
+        for(const index of selected)buildings[index].building.photoIndex=availablePhotos.pop();
       }
       skyClouds=Array.from({length:3+Math.floor(Math.random()*9)},(_,i)=>({
         x:35+Math.random()*930,y:45+Math.random()*470,scale:.62+Math.random()*1.35,
