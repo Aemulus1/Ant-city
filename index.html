@@ -19,7 +19,7 @@
     <label class="field"><span>Blokhoogte <output id="ms-height-value">100%</output></span><input id="ms-height" class="form-range" type="range" min="70" max="145" value="100"></label>
     <label class="field"><span>Snelheid <output id="ms-speed-value">4</output></span><input id="ms-speed" class="form-range" type="range" min="1" max="10" value="4"></label>
     <label class="field"><span>Verzadiging <output id="ms-saturation-value">35%</output></span><input id="ms-saturation" class="form-range" type="range" min="0" max="100" value="35"></label>
-    <div class="actions"><button id="ms-start" class="btn btn-primary" type="button">Start</button><button id="ms-day-night" class="btn" type="button" aria-pressed="false">Nacht</button><button id="ms-pause" class="btn" type="button">Pauze</button><button id="ms-reset" class="btn btn-ghost" type="button">Opnieuw</button></div>
+    <div class="actions"><button id="ms-day-night" class="btn" type="button" aria-pressed="false">Nacht</button></div>
   </div>
 
   <div id="ms-row-controls" aria-label="Hoogte van de vier huizenrijen">
@@ -45,6 +45,7 @@
     <small>Elke regelaar verplaatst uitsluitend de gekozen objecten. De huizenrijen blijven exact staan.</small>
   </div>
   <p id="ms-status" aria-live="polite">De mier begint achteraan.</p>
+  <div class="actions" style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 10px"><button id="ms-start" class="btn btn-primary" type="button">Start</button><button id="ms-pause" class="btn" type="button">Pauze</button><button id="ms-reset" class="btn btn-ghost" type="button">Opnieuw</button></div>
   <canvas id="ms-canvas" width="4800" height="2760" role="img" aria-label="Stad in vooraanzicht: een mier bouwt kleurrijke 3D-gebouwen en plaatst stadsobjecten; een tweede mier loopt door een wisselende lucht met dag- en nachtstand."></canvas>
   <span id="ms-color-probe" aria-hidden="true"></span>
   <style>
@@ -248,7 +249,7 @@
       photosPerRow.forEach((arr,layer)=>{
         shufflePhotos(arr);
         if(layer!==1&&layer!==2)return;
-        const originals=arr.slice(),target=layer===2?11:8; // Alleen rij met 5–6 verdiepingen dichter vullen
+        const originals=arr.slice(),target=layer===2?11:6; // Rij 7–10: zes gebouwen en ruimte voor twee open plekken
         // De eerste cyclus bevat elke beschikbare gevel exact één keer.
         // Herhaling begint uitsluitend na de laatste unieke gevel.
         while(arr.length<target){
@@ -256,6 +257,21 @@
           if(usedInCycle===0)shufflePhotos(originals);
           const next=originals[usedInCycle];
           arr.push(next);
+        }
+        // Spreid herhaalde gevels over de volledige rij: eerst alle unieke
+        // gevels selecteren, daarna kopieën toevoegen, maar geen identieke buren.
+        // Kies uitsluitend een andere horizontale volgorde; schaal/Y blijven gelijk.
+        if(arr.length>originals.length){
+          const counts=new Map();
+          for(const id of arr)counts.set(id,(counts.get(id)||0)+1);
+          const ordered=[];
+          while(ordered.length<arr.length){
+            const options=[...counts.entries()].filter(([id,n])=>n>0&&id!==ordered[ordered.length-1]);
+            if(!options.length)break;
+            options.sort((a,b)=>b[1]-a[1]||(Math.random()-.5));
+            const id=options[0][0];ordered.push(id);counts.set(id,counts.get(id)-1);
+          }
+          if(ordered.length===arr.length)arr.splice(0,arr.length,...ordered);
         }
       });
       const rowSlots=photosPerRow.map(arr=>{
@@ -292,12 +308,32 @@
         // Middelste rij: 30% open ruimte tussen de gevels; de schaal en hoogte blijven ongewijzigd.
         if(layer===1 || layer===2){
           // Kopieën vullen de middelste rijen; uitsluitend horizontale tussenruimte.
-          const eachGap=layer===1?18:12;
-          const gaps=Array.from({length:n},(_,i)=>i*eachGap);
-          line.photoLayout={fit,start:-40,gapBefore:gaps};
+          if(layer===1){
+            // Twee open plekken, elk ongeveer een gebouw breed, op wisselende posities.
+            // Geen verandering aan gebouwschaal, Y-positie of andere rijen.
+            const slots=Array.from({length:Math.max(0,n-1)},(_,i)=>i+1);
+            for(let i=slots.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[slots[i],slots[j]]=[slots[j],slots[i]];}
+            const cuts=slots.slice(0,2);
+            const averageWidth=widths.reduce((sum,w)=>sum+w,0)/Math.max(1,n);
+            const gaps=Array.from({length:n},(_,i)=>i*18+cuts.filter(cut=>cut<=i).length*averageWidth);
+            // Verdeel de rij over de volledige canvasbreedte, met behoud van twee openingen.
+            const occupied=widths.reduce((sum,w)=>sum+w*fit,0)+gaps[n-1];
+            const extra=Math.max(0,2000-80-occupied);
+            const distributed=gaps.map((gap,i)=>gap+(n>1?extra*i/(n-1):0));
+            const total=occupied+extra;
+            line.photoLayout={fit,start:(2000-total)/2,gapBefore:distributed};
+          }else{
+            const gaps=Array.from({length:n},(_,i)=>i*12);
+            line.photoLayout={fit,start:-40,gapBefore:gaps};
+          }
         }else if(layer===0){
           const spreadGaps=gapBefore.map((gap,i)=>gap+i*90);
-          line.photoLayout={fit,start:-40,gapBefore:spreadGaps};
+          // Centreer ook de achterste rij; vul vrije breedte via tussenruimtes.
+          const occupied=widths.reduce((sum,w)=>sum+w*fit,0)+spreadGaps[n-1];
+          const extra=Math.max(0,2000-80-occupied);
+          const distributed=spreadGaps.map((gap,i)=>gap+(n>1?extra*i/(n-1):0));
+          const total=occupied+extra;
+          line.photoLayout={fit,start:(2000-total)/2,gapBefore:distributed};
         }else{
           line.photoLayout={fit,start:-40,gapBefore};
         }
@@ -305,52 +341,6 @@
         line.baseY=bases[layer];
         line.frontObjects=[];
       });
-      // Uitsluitend de twee middelste gebouwenrijen (code-layers 1 en 2):
-      // geen gevel mag meer dan 80% van een gebouw in de rij erachter afdekken.
-      // Alle andere rijen, schalen en verticale posities blijven onveranderd.
-      const facadeWidth=(idx,layer)=>{
-        const im=facadeImages[idx];
-        const ratio=im?.naturalWidth&&im?.naturalHeight?im.naturalWidth/im.naturalHeight:.75;
-        return photoFloors[idx]*pixelsPerFloor[layer]*ratio*(idx===5?1.2:1);
-      };
-      const photoRects=layer=>{
-        const line=rows[layer], buildings=line.segments.filter(s=>s.kind==='building');
-        const layout=line.photoLayout,fit=layout.fit;
-        let x=layout.start;
-        return buildings.map((seg,i)=>{
-          x+=(layout.gapBefore[i]-(i?layout.gapBefore[i-1]:0));
-          const w=facadeWidth(seg.building.photoIndex,layer)*fit;
-          const rect={x,w};x+=w;return rect;
-        });
-      };
-      for(const layer of [1,2]){
-        const line=rows[layer],layout=line.photoLayout;
-        const buildings=line.segments.filter(s=>s.kind==='building');
-        const behind=photoRects(layer-1);
-        const originalGaps=layout.gapBefore.slice();
-        const adjusted=Array(buildings.length).fill(0);
-        let previousRight=-Infinity;
-        let cumulativeExtra=0;
-        let originalX=layout.start;
-        for(let i=0;i<buildings.length;i++){
-          originalX+=originalGaps[i]-(i?originalGaps[i-1]:0);
-          const w=facadeWidth(buildings[i].building.photoIndex,layer)*layout.fit;
-          let x=originalX+cumulativeExtra;
-          x=Math.max(x,previousRight+(i?12:0));
-          // Schuif alleen naar rechts als dit gebouw een achterliggende gevel
-          // voor meer dan 80% zou afdekken. Schaal en hoogte veranderen niet.
-          for(let tries=0;tries<behind.length*2+2;tries++){
-            const conflict=behind.find(b=>Math.max(0,Math.min(x+w,b.x+b.w)-Math.max(x,b.x))>b.w*.8);
-            if(!conflict)break;
-            x=Math.max(x+1,conflict.x+conflict.w*.8);
-          }
-          cumulativeExtra=x-originalX;
-          adjusted[i]=originalGaps[i]+cumulativeExtra;
-          previousRight=x+w;
-          originalX+=w;
-        }
-        layout.gapBefore=adjusted;
-      }
       skyClouds=Array.from({length:3+Math.floor(Math.random()*9)},(_,i)=>({
         x:35+Math.random()*930,y:45+Math.random()*470,scale:.62+Math.random()*1.35,
         stretch:.86+Math.random()*.48,opacity:.28+Math.random()*.54,
@@ -858,9 +848,10 @@
       const layers=[3,3,3,3,3,3,3];
       for(let k=0;k<Math.min(ids.length,objectCounts.ped);k++){
         const layer=layers[k], height=70;
-        let x=70+Math.random()*860;
+        const pedestrianMinX=70, pedestrianMaxX=canvas.width/renderScale-70;
+        let x=pedestrianMinX+Math.random()*(pedestrianMaxX-pedestrianMinX);
         for(let tries=0;tries<35;tries++){
-          const trial=70+Math.random()*860;
+          const trial=pedestrianMinX+Math.random()*(pedestrianMaxX-pedestrianMinX);
           if(pedestrianPlacements.every(p=>p.layer!==layer||Math.abs(p.x-trial)>125)){x=trial;break;}
         }
         pedestrianPlacements.push({id:ids[k],layer,x,height});
@@ -909,13 +900,14 @@
       });
       treePlacements.sort((a,b)=>a.x-b.x);
     }
-    function drawTrees(){
-      for(const t of treePlacements){const img=treeImages[t.id];if(!img?.complete||!img.naturalWidth)continue;const w=t.width;ctx.drawImage(img,t.x-w/2,1195+objectOffsets.tree-t.height,w,t.height);}
+    function drawTrees(limit=Infinity){
+      for(const t of treePlacements.slice(0,limit)){const img=treeImages[t.id];if(!img?.complete||!img.naturalWidth)continue;const w=t.width;ctx.drawImage(img,t.x-w/2,1195+objectOffsets.tree-t.height,w,t.height);}
     }
-    function drawCars(layer){
+    function drawCars(layer,limit=Infinity){
       const baseline=rows[layer]?.baseY;
       if(!Number.isFinite(baseline))return;
-      for(const p of carPlacements){
+      for(const [idx,p] of carPlacements.entries()){
+        if(idx>=limit)continue;
         if(p.layer!==layer)continue;
         const img=carImages[p.id];
         if(!img?.complete||!img.naturalWidth)continue;
@@ -924,10 +916,11 @@
         ctx.drawImage(img,p.x-w/2,baseline+objectOffsets.car+roadOffset-p.height,w,p.height);
       }
     }
-    function drawPedestrians(layer){
+    function drawPedestrians(layer,limit=Infinity){
       const baseline=rows[layer]?.baseY;
       if(!Number.isFinite(baseline))return;
-      for(const p of pedestrianPlacements){
+      for(const [idx,p] of pedestrianPlacements.entries()){
+        if(idx>=limit)continue;
         if(p.layer!==layer)continue;
         const img=pedestrianImages[p.id];
         if(!img?.complete||!img.naturalWidth)return;
@@ -1072,6 +1065,9 @@
       const x=24+952*progress,y=280+Math.sin(progress*Math.PI*2)*112;
       ctx.save();ctx.translate(x,y);ctx.scale(.72,.72);drawAnt(0,0);ctx.restore();
     }
+    let streetReveal=0;
+    let streetRevealClock=0;
+    function streetObjectTotal(){return pedestrianPlacements.length+carPlacements.length+treePlacements.length;}
     function draw(){
       const skyProgress=totalBuildProgress();
       const sky=ctx.createLinearGradient(0,0,0,720);
@@ -1106,20 +1102,38 @@
         for(const object of line.frontObjects||[])if(object.order<=walkProgress)drawTownObject(object,frontObjectY);
         
       }
+      // Straatleven verschijnt na de gebouwen, object voor object.
+      const visible=finished?streetObjectTotal():streetReveal;
+      const pedVisible=Math.min(visible,pedestrianPlacements.length);
+      const carVisible=Math.max(0,Math.min(visible-pedestrianPlacements.length,carPlacements.length));
+      const treeVisible=Math.max(0,visible-pedestrianPlacements.length-carPlacements.length);
       for(let r=0;r<rows.length;r++){
-        if(r<rowIndex || (r===rowIndex && segmentIndex>=rows[r].segments.length)){
-          drawPedestrians(r);
-          drawCars(r);
+        if(r<rowIndex || rowIndex>=rows.length){
+          drawPedestrians(r,pedVisible);
+          drawCars(r,carVisible);
         }
       }
-      if(finished)drawTrees();
+      drawTrees(treeVisible);
       if(running&&rowIndex<rows.length&&segmentIndex<rows[rowIndex].segments.length){const line=rows[rowIndex],s=line.segments[segmentIndex],x=Math.max(15,Math.min(985,line.reverse?s.x+s.w-progress:s.x+progress)),y=s.kind==='building'?s.building.baseY-s.building.h-18:line.baseY-8;drawAnt(x,y)}
     }
-    function setStatus(){if(finished)status.textContent='De stad is opgebouwd; gebouwen en stadsobjecten zijn geplaatst.';else if(running)status.textContent='Diepterij '+(rowIndex+1)+' van '+rows.length+' · de mier bouwt en plaatst objecten';else if(rowIndex===0&&segmentIndex===0&&progress===0)status.textContent='Klaar om achteraan te beginnen.';else status.textContent='Gepauzeerd bij diepterij '+Math.min(rowIndex+1,rows.length)+' van '+rows.length+'.'}
+    function setStatus(){if(finished)status.textContent='De stad is opgebouwd; gebouwen en stadsobjecten zijn geplaatst.';else if(running)status.textContent=rowIndex>=rows.length?'Straatleven verschijnt: '+streetReveal+' van '+streetObjectTotal()+' objecten':'Diepterij '+(rowIndex+1)+' van '+rows.length+' · de mier bouwt en plaatst objecten';else if(rowIndex===0&&segmentIndex===0&&progress===0)status.textContent='Klaar om achteraan te beginnen.';else status.textContent='Gepauzeerd bij diepterij '+Math.min(rowIndex+1,rows.length)+' van '+rows.length+'.'}
     function stop(done=false){running=false;if(frame!==null)cancelAnimationFrame(frame);frame=null;finished=done;startButton.disabled=false;pauseButton.disabled=true;startButton.textContent=done?'Opnieuw starten':'Start';draw();setStatus()}
-    function animate(now){if(!running)return;const dt=Math.min((now-lastTime)/1000,.04);lastTime=now;const segment=rows[rowIndex].segments[segmentIndex];progress+=dt*(35+Number(speed.value)*30);if(progress>=segment.w){progress=0;segmentIndex++;if(segmentIndex>=rows[rowIndex].segments.length){segmentIndex=0;rowIndex++;setStatus()}if(rowIndex>=rows.length){stop(true);return}}draw();frame=requestAnimationFrame(animate)}
-    function play(){if(finished)reset();running=true;finished=false;started=true;startButton.disabled=true;pauseButton.disabled=false;lastTime=performance.now();setStatus();frame=requestAnimationFrame(animate)}
-    function reset(){if(frame!==null)cancelAnimationFrame(frame);frame=null;running=false;finished=false;started=false;rowIndex=0;segmentIndex=0;progress=0;makeRows();newStreetLife();newTrees();startButton.disabled=false;pauseButton.disabled=true;startButton.textContent='Start';draw();setStatus()}
+    function animate(now){
+      if(!running)return;
+      const dt=Math.min((now-lastTime)/1000,.04);lastTime=now;
+      if(rowIndex>=rows.length){
+        streetRevealClock+=dt;
+        if(streetRevealClock>=0.55){streetRevealClock=0;streetReveal++;}
+        if(streetReveal>=streetObjectTotal()){stop(true);return;}
+      }else{
+        const segment=rows[rowIndex].segments[segmentIndex];
+        progress+=dt*(35+Number(speed.value)*30);
+        if(progress>=segment.w){progress=0;segmentIndex++;if(segmentIndex>=rows[rowIndex].segments.length){segmentIndex=0;rowIndex++;setStatus();}}
+      }
+      draw();frame=requestAnimationFrame(animate);
+    }
+        function play(){if(finished)reset();running=true;finished=false;started=true;startButton.disabled=true;pauseButton.disabled=false;lastTime=performance.now();setStatus();frame=requestAnimationFrame(animate)}
+    function reset(){if(frame!==null)cancelAnimationFrame(frame);frame=null;running=false;finished=false;started=false;rowIndex=0;segmentIndex=0;progress=0;streetReveal=0;streetRevealClock=0;makeRows();newStreetLife();newTrees();startButton.disabled=false;pauseButton.disabled=true;startButton.textContent='Start';draw();setStatus()}
     depth.addEventListener('input',()=>{document.getElementById('ms-depth-value').textContent=depth.value;reset()});height.addEventListener('input',()=>{document.getElementById('ms-height-value').textContent=height.value+'%';reset()});speed.addEventListener('input',()=>{document.getElementById('ms-speed-value').textContent=speed.value});saturation.addEventListener('input',updateFacadeColors);
     startButton.addEventListener('click',play);pauseButton.addEventListener('click',()=>stop(false));document.getElementById('ms-reset').addEventListener('click',reset);
     dayNightButton.addEventListener('click',()=>{night=!night;dayNightButton.textContent=night?'Dag':'Nacht';dayNightButton.setAttribute('aria-pressed',String(night));draw()});
