@@ -337,6 +337,13 @@
         }else{
           line.photoLayout={fit,start:-40,gapBefore};
         }
+        // Voorste rij: twee aangrenzende huisposities vormen samen één breed pleintje.
+        // De overige gevels, hun schaal en de bestaande straatopeningen blijven gelijk.
+        if(layer===3 && newSegments.length>3){
+          const openSlot=1+Math.floor(Math.random()*(newSegments.length-3));
+          newSegments[openSlot].building.hiddenPhoto=true;
+          newSegments[openSlot+1].building.hiddenPhoto=true;
+        }
         line.segments=newSegments;
         line.baseY=bases[layer];
         line.frontObjects=[];
@@ -929,6 +936,7 @@
       }
     }
     function drawPhotoBuilding(b,reveal,reverse){
+      if(b.hiddenPhoto)return;
       const img=facadeImages[b.photoIndex];if(!img?.complete||!img.naturalWidth)return;
       const layer=b.photoLayer??0;
       // Doorlopende gevelwand: geen gecentreerde compositie.
